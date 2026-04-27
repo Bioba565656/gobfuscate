@@ -48,6 +48,11 @@ func obfuscateFile(input, output string, rng *rand.Rand) error {
 		return fmt.Errorf("parse: %w", err)
 	}
 	stripNonDirectiveComments(file)
+	// Comments retained in file.Comments are placed by absolute positions.
+	// Later rewrites inject NoPos nodes, which can misplace directive comments
+	// between declarations (e.g. inside the previous function body). Keep
+	// directives on Doc/Comment fields, but disable positional placement.
+	file.Comments = nil
 
 	info := &types.Info{
 		Defs:  make(map[*ast.Ident]types.Object),
