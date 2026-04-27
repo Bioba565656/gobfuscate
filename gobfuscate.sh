@@ -22,6 +22,8 @@ USAGE
 IN_FILE=""
 OUT_FILE=""
 SEED=""
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+GOBFUSCATE_GO="$SCRIPT_DIR/gobfuscate.go"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -60,6 +62,11 @@ if [[ ! -f "$IN_FILE" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$GOBFUSCATE_GO" ]]; then
+  echo "Erreur: source introuvable: $GOBFUSCATE_GO" >&2
+  exit 1
+fi
+
 if [[ -z "$OUT_FILE" ]]; then
   base="${IN_FILE%.go}"
   if [[ "$base" == "$IN_FILE" ]]; then
@@ -69,7 +76,7 @@ if [[ -z "$OUT_FILE" ]]; then
   fi
 fi
 
-cmd=(go run gobfuscate.go -in "$IN_FILE" -out "$OUT_FILE")
+cmd=(go run "$GOBFUSCATE_GO" -in "$IN_FILE" -out "$OUT_FILE")
 if [[ -n "$SEED" ]]; then
   cmd+=( -seed "$SEED" )
 fi
