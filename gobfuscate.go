@@ -48,8 +48,9 @@ func obfuscateFile(input, output string, rng *rand.Rand) error {
 	}
 
 	info := &types.Info{
-		Defs: make(map[*ast.Ident]types.Object),
-		Uses: make(map[*ast.Ident]types.Object),
+		Defs:  make(map[*ast.Ident]types.Object),
+		Uses:  make(map[*ast.Ident]types.Object),
+		Types: make(map[ast.Expr]types.TypeAndValue),
 	}
 	cfg := &types.Config{Importer: importer.Default(), Error: func(error) {}}
 	pkgName := file.Name.Name
@@ -67,8 +68,8 @@ func obfuscateFile(input, output string, rng *rand.Rand) error {
 	obfuscateFunctionBodies(file, rng)
 
 	if stringChanged {
-		ensureImport(file, "encoding/hex")
-		ensureDecoderHelper(file, decoderName)
+		hexIdent := ensureHexImport(file)
+		ensureDecoderHelper(file, decoderName, hexIdent)
 	}
 
 	outFile, err := os.Create(output)
@@ -197,6 +198,9 @@ func shouldSkipStringLiteral(n ast.Node, parents map[ast.Node]ast.Node) bool {
 	}
 
 	for cur := n; cur != nil; cur = parents[cur] {
+		if at, ok := parents[cur].(*ast.ArrayType); ok && at.Len == cur {
+			return true
+		}
 		if vs, ok := parents[cur].(*ast.ValueSpec); ok {
 			if gd, ok := parents[vs].(*ast.GenDecl); ok && gd.Tok == token.CONST {
 				return true
@@ -350,10 +354,17 @@ func obfuscateFunctionBodies(file *ast.File, rng *rand.Rand) {
 	}
 }
 
-func ensureImport(file *ast.File, path string) {
+func ensureHexImport(file *ast.File) string {
+	const path = "encoding/hex"
 	for _, im := range file.Imports {
 		if im.Path != nil && im.Path.Value == strconv.Quote(path) {
-			return
+			if im.Name == nil {
+				return "hex"
+			}
+			if im.Name.Name != "_" && im.Name.Name != "." {
+				return im.Name.Name
+			}
+			break
 		}
 	}
 
@@ -365,15 +376,16 @@ func ensureImport(file *ast.File, path string) {
 		}
 		gd.Specs = append(gd.Specs, newSpec)
 		file.Imports = append(file.Imports, newSpec)
-		return
+		return "hex"
 	}
 
 	gd := &ast.GenDecl{Tok: token.IMPORT, Specs: []ast.Spec{newSpec}}
 	file.Decls = append([]ast.Decl{gd}, file.Decls...)
 	file.Imports = append(file.Imports, newSpec)
+	return "hex"
 }
 
-func ensureDecoderHelper(file *ast.File, name string) {
+func ensureDecoderHelper(file *ast.File, name, hexIdent string) {
 	for _, decl := range file.Decls {
 		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == name {
 			return
@@ -390,7 +402,7 @@ func ensureDecoderHelper(file *ast.File, name string) {
 			Results: &ast.FieldList{List: []*ast.Field{{Type: ast.NewIdent("string")}}},
 		},
 		Body: &ast.BlockStmt{List: []ast.Stmt{
-			&ast.AssignStmt{Lhs: []ast.Expr{ast.NewIdent("b"), ast.NewIdent("err")}, Tok: token.DEFINE, Rhs: []ast.Expr{&ast.CallExpr{Fun: &ast.SelectorExpr{X: ast.NewIdent("hex"), Sel: ast.NewIdent("DecodeString")}, Args: []ast.Expr{ast.NewIdent("h")}}}},
+			&ast.AssignStmt{Lhs: []ast.Expr{ast.NewIdent("b"), ast.NewIdent("err")}, Tok: token.DEFINE, Rhs: []ast.Expr{&ast.CallExpr{Fun: &ast.SelectorExpr{X: ast.NewIdent(hexIdent), Sel: ast.NewIdent("DecodeString")}, Args: []ast.Expr{ast.NewIdent("h")}}}},
 			&ast.IfStmt{Cond: &ast.BinaryExpr{X: ast.NewIdent("err"), Op: token.NEQ, Y: ast.NewIdent("nil")}, Body: &ast.BlockStmt{List: []ast.Stmt{&ast.ReturnStmt{Results: []ast.Expr{&ast.BasicLit{Kind: token.STRING, Value: strconv.Quote("")}}}}}},
 			&ast.RangeStmt{Key: ast.NewIdent("i"), Tok: token.DEFINE, X: ast.NewIdent("b"), Body: &ast.BlockStmt{List: []ast.Stmt{&ast.AssignStmt{Lhs: []ast.Expr{&ast.IndexExpr{X: ast.NewIdent("b"), Index: ast.NewIdent("i")}}, Tok: token.XOR_ASSIGN, Rhs: []ast.Expr{ast.NewIdent("k")}}}}},
 			&ast.ReturnStmt{Results: []ast.Expr{&ast.CallExpr{Fun: ast.NewIdent("string"), Args: []ast.Expr{ast.NewIdent("b")}}}},
