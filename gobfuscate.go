@@ -59,8 +59,8 @@ func obfuscateFile(input, output string, rng *rand.Rand) error {
 	}
 	_, _ = cfg.Check(pkgName, fset, []*ast.File{file}, info)
 
-	renameByObj := collectObjectRenames(file, info, rng)
-	applyObjectRenames(file, info, renameByObj)
+	renameByObj, renameByFuncName := collectObjectRenames(file, info, rng)
+	applyObjectRenames(file, info, renameByObj, renameByFuncName)
 
 	parents := buildParents(file)
 	decoderName := "__gobfDec_" + randomHex(rng, 4)
@@ -84,8 +84,9 @@ func obfuscateFile(input, output string, rng *rand.Rand) error {
 	return nil
 }
 
-func collectObjectRenames(file *ast.File, info *types.Info, rng *rand.Rand) map[types.Object]string {
+func collectObjectRenames(file *ast.File, info *types.Info, rng *rand.Rand) (map[types.Object]string, map[string]string) {
 	renameByObj := map[types.Object]string{}
+	renameByFuncName := map[string]string{}
 
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
@@ -93,10 +94,12 @@ func collectObjectRenames(file *ast.File, info *types.Info, rng *rand.Rand) map[
 			continue
 		}
 		if fn.Recv == nil {
-			if obj, ok := info.Defs[fn.Name].(*types.Func); ok {
-				name := fn.Name.Name
-				if name != "main" && name != "init" && !ast.IsExported(name) {
-					renameByObj[obj] = "_f" + randomHex(rng, 6)
+			name := fn.Name.Name
+			if name != "main" && name != "init" && !ast.IsExported(name) {
+				newName := "_f" + randomHex(rng, 6)
+				renameByFuncName[name] = newName
+				if obj, ok := info.Defs[fn.Name].(*types.Func); ok {
+					renameByObj[obj] = newName
 				}
 			}
 		}
@@ -124,10 +127,11 @@ func collectObjectRenames(file *ast.File, info *types.Info, rng *rand.Rand) map[
 		})
 	}
 
-	return renameByObj
+	return renameByObj, renameByFuncName
 }
 
-func applyObjectRenames(file *ast.File, info *types.Info, renameByObj map[types.Object]string) {
+func applyObjectRenames(file *ast.File, info *types.Info, renameByObj map[types.Object]string, renameByFuncName map[string]string) {
+	parents := buildParents(file)
 	ast.Inspect(file, func(n ast.Node) bool {
 		id, ok := n.(*ast.Ident)
 		if !ok {
@@ -143,9 +147,22 @@ func applyObjectRenames(file *ast.File, info *types.Info, renameByObj map[types.
 			if newName, ok := renameByObj[obj]; ok {
 				id.Name = newName
 			}
+			return true
+		}
+		if newName, ok := renameByFuncName[id.Name]; ok && isFunctionCallIdent(id, parents[id]) {
+			id.Name = newName
 		}
 		return true
 	})
+}
+
+func isFunctionCallIdent(id *ast.Ident, n ast.Node) bool {
+	call, ok := n.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	funIdent, ok := call.Fun.(*ast.Ident)
+	return ok && funIdent == id
 }
 
 func obfuscateStrings(file *ast.File, parents map[ast.Node]ast.Node, decoderName string, rng *rand.Rand) bool {
