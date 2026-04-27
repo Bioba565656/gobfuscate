@@ -396,15 +396,15 @@ func ensureDecoderHelper(file *ast.File, name, hexIdent string) {
 		Name: ast.NewIdent(name),
 		Type: &ast.FuncType{
 			Params: &ast.FieldList{List: []*ast.Field{
-				{Names: []*ast.Ident{ast.NewIdent("h")}, Type: ast.NewIdent("string")},
-				{Names: []*ast.Ident{ast.NewIdent("k")}, Type: ast.NewIdent("byte")},
+				{Names: []*ast.Ident{ast.NewIdent("enc")}, Type: ast.NewIdent("string")},
+				{Names: []*ast.Ident{ast.NewIdent("key")}, Type: ast.NewIdent("byte")},
 			}},
 			Results: &ast.FieldList{List: []*ast.Field{{Type: ast.NewIdent("string")}}},
 		},
 		Body: &ast.BlockStmt{List: []ast.Stmt{
-			&ast.AssignStmt{Lhs: []ast.Expr{ast.NewIdent("b"), ast.NewIdent("err")}, Tok: token.DEFINE, Rhs: []ast.Expr{&ast.CallExpr{Fun: &ast.SelectorExpr{X: ast.NewIdent(hexIdent), Sel: ast.NewIdent("DecodeString")}, Args: []ast.Expr{ast.NewIdent("h")}}}},
+			&ast.AssignStmt{Lhs: []ast.Expr{ast.NewIdent("b"), ast.NewIdent("err")}, Tok: token.DEFINE, Rhs: []ast.Expr{&ast.CallExpr{Fun: &ast.SelectorExpr{X: ast.NewIdent(hexIdent), Sel: ast.NewIdent("DecodeString")}, Args: []ast.Expr{ast.NewIdent("enc")}}}},
 			&ast.IfStmt{Cond: &ast.BinaryExpr{X: ast.NewIdent("err"), Op: token.NEQ, Y: ast.NewIdent("nil")}, Body: &ast.BlockStmt{List: []ast.Stmt{&ast.ReturnStmt{Results: []ast.Expr{&ast.BasicLit{Kind: token.STRING, Value: strconv.Quote("")}}}}}},
-			&ast.RangeStmt{Key: ast.NewIdent("i"), Tok: token.DEFINE, X: ast.NewIdent("b"), Body: &ast.BlockStmt{List: []ast.Stmt{&ast.AssignStmt{Lhs: []ast.Expr{&ast.IndexExpr{X: ast.NewIdent("b"), Index: ast.NewIdent("i")}}, Tok: token.XOR_ASSIGN, Rhs: []ast.Expr{ast.NewIdent("k")}}}}},
+			&ast.RangeStmt{Key: ast.NewIdent("i"), Tok: token.DEFINE, X: ast.NewIdent("b"), Body: &ast.BlockStmt{List: []ast.Stmt{&ast.AssignStmt{Lhs: []ast.Expr{&ast.IndexExpr{X: ast.NewIdent("b"), Index: ast.NewIdent("i")}}, Tok: token.XOR_ASSIGN, Rhs: []ast.Expr{ast.NewIdent("key")}}}}},
 			&ast.ReturnStmt{Results: []ast.Expr{&ast.CallExpr{Fun: ast.NewIdent("string"), Args: []ast.Expr{ast.NewIdent("b")}}}},
 		}},
 	}
