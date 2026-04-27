@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
 	"flag"
@@ -48,12 +49,15 @@ func obfuscateFile(input, output string, rng *rand.Rand) error {
 		return fmt.Errorf("parse: %w", err)
 	}
 	stripNonDirectiveComments(file)
-	fileLevelDirectives := collectFileLevelDirectives(file)
+	fileLevelDirectives, err := extractFileLevelDirectivesText(input, fset, file)
+	if err != nil {
+		return fmt.Errorf("extract file-level directives: %w", err)
+	}
 	// Comments retained in file.Comments are placed by absolute positions.
 	// Later rewrites inject NoPos nodes, which can misplace directive comments
 	// between declarations (e.g. inside the previous function body). Keep
-	// directives on Doc/Comment fields and preserve file-level build tags.
-	file.Comments = fileLevelDirectives
+	// directives on Doc/Comment fields by disabling positional placement.
+	file.Comments = nil
 
 	info := &types.Info{
 		Defs:  make(map[*ast.Ident]types.Object),
@@ -86,8 +90,17 @@ func obfuscateFile(input, output string, rng *rand.Rand) error {
 	}
 	defer outFile.Close()
 
-	if err := format.Node(outFile, fset, file); err != nil {
+	var formatted bytes.Buffer
+	if err := format.Node(&formatted, fset, file); err != nil {
 		return fmt.Errorf("format output: %w", err)
+	}
+	if fileLevelDirectives != "" {
+		if _, err := outFile.WriteString(fileLevelDirectives); err != nil {
+			return fmt.Errorf("write file-level directives: %w", err)
+		}
+	}
+	if _, err := outFile.Write(formatted.Bytes()); err != nil {
+		return fmt.Errorf("write output: %w", err)
 	}
 	return nil
 }
@@ -210,21 +223,39 @@ func cgoPreambleComments(file *ast.File) []*ast.CommentGroup {
 	return groups
 }
 
-func collectFileLevelDirectives(file *ast.File) []*ast.CommentGroup {
+func extractFileLevelDirectivesText(input string, fset *token.FileSet, file *ast.File) (string, error) {
 	if len(file.Comments) == 0 {
-		return nil
+		return "", nil
 	}
 
-	filtered := make([]*ast.CommentGroup, 0, len(file.Comments))
+	src, err := os.ReadFile(input)
+	if err != nil {
+		return "", err
+	}
+
+	var b strings.Builder
 	for _, group := range file.Comments {
 		if !hasDirectiveComment(group) {
 			continue
 		}
-		if group.End() < file.Package {
-			filtered = append(filtered, group)
+		if group.End() >= file.Package {
+			continue
 		}
+		start := fset.Position(group.Pos()).Offset
+		end := fset.Position(group.End()).Offset
+		if start < 0 || end < start || end > len(src) {
+			return "", fmt.Errorf("invalid comment group offsets [%d:%d]", start, end)
+		}
+		b.Write(src[start:end])
+		b.WriteByte('\n')
 	}
-	return filtered
+	if b.Len() == 0 {
+		return "", nil
+	}
+	if !strings.HasSuffix(b.String(), "\n\n") {
+		b.WriteByte('\n')
+	}
+	return b.String(), nil
 }
 
 func collectObjectRenames(file *ast.File, info *types.Info, rng *rand.Rand) (map[types.Object]string, map[string]string) {
