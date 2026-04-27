@@ -42,7 +42,7 @@ func main() {
 
 func obfuscateFile(input, output string, rng *rand.Rand) error {
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, input, nil, parser.ParseComments)
+	file, err := parser.ParseFile(fset, input, nil, 0)
 	if err != nil {
 		return fmt.Errorf("parse: %w", err)
 	}
