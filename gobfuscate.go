@@ -14,6 +14,7 @@ import (
 	"math/rand"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -42,10 +43,11 @@ func main() {
 
 func obfuscateFile(input, output string, rng *rand.Rand) error {
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, input, nil, 0)
+	file, err := parser.ParseFile(fset, input, nil, parser.ParseComments)
 	if err != nil {
 		return fmt.Errorf("parse: %w", err)
 	}
+	stripNonDirectiveComments(file)
 
 	info := &types.Info{
 		Defs:  make(map[*ast.Ident]types.Object),
@@ -82,6 +84,124 @@ func obfuscateFile(input, output string, rng *rand.Rand) error {
 		return fmt.Errorf("format output: %w", err)
 	}
 	return nil
+}
+
+func stripNonDirectiveComments(file *ast.File) {
+	if len(file.Comments) == 0 {
+		return
+	}
+
+	keep := map[*ast.CommentGroup]bool{}
+	for _, group := range file.Comments {
+		if hasDirectiveComment(group) {
+			keep[group] = true
+		}
+	}
+	for _, group := range cgoPreambleComments(file) {
+		keep[group] = true
+	}
+
+	filtered := make([]*ast.CommentGroup, 0, len(file.Comments))
+	for _, group := range file.Comments {
+		if keep[group] {
+			filtered = append(filtered, group)
+		}
+	}
+	file.Comments = filtered
+
+	if file.Doc != nil && !keep[file.Doc] {
+		file.Doc = nil
+	}
+	for _, decl := range file.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if d.Doc != nil && !keep[d.Doc] {
+				d.Doc = nil
+			}
+		case *ast.GenDecl:
+			if d.Doc != nil && !keep[d.Doc] {
+				d.Doc = nil
+			}
+			for _, spec := range d.Specs {
+				switch s := spec.(type) {
+				case *ast.ImportSpec:
+					if s.Doc != nil && !keep[s.Doc] {
+						s.Doc = nil
+					}
+					if s.Comment != nil && !keep[s.Comment] {
+						s.Comment = nil
+					}
+				case *ast.TypeSpec:
+					if s.Doc != nil && !keep[s.Doc] {
+						s.Doc = nil
+					}
+					if s.Comment != nil && !keep[s.Comment] {
+						s.Comment = nil
+					}
+				case *ast.ValueSpec:
+					if s.Doc != nil && !keep[s.Doc] {
+						s.Doc = nil
+					}
+					if s.Comment != nil && !keep[s.Comment] {
+						s.Comment = nil
+					}
+				}
+			}
+		}
+	}
+	ast.Inspect(file, func(n ast.Node) bool {
+		f, ok := n.(*ast.Field)
+		if !ok {
+			return true
+		}
+		if f.Doc != nil && !keep[f.Doc] {
+			f.Doc = nil
+		}
+		if f.Comment != nil && !keep[f.Comment] {
+			f.Comment = nil
+		}
+		return true
+	})
+}
+
+func hasDirectiveComment(group *ast.CommentGroup) bool {
+	for _, c := range group.List {
+		text := strings.TrimSpace(c.Text)
+		if strings.HasPrefix(text, "//go:") ||
+			strings.HasPrefix(text, "//go:build") ||
+			strings.HasPrefix(text, "// +build") ||
+			strings.HasPrefix(text, "//line ") ||
+			strings.HasPrefix(text, "/*line ") {
+			return true
+		}
+	}
+	return false
+}
+
+func cgoPreambleComments(file *ast.File) []*ast.CommentGroup {
+	var groups []*ast.CommentGroup
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.IMPORT {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			imp, ok := spec.(*ast.ImportSpec)
+			if !ok || imp.Path == nil || imp.Path.Value != `"C"` {
+				continue
+			}
+			if gen.Doc != nil {
+				groups = append(groups, gen.Doc)
+			}
+			if imp.Doc != nil {
+				groups = append(groups, imp.Doc)
+			}
+			if imp.Comment != nil {
+				groups = append(groups, imp.Comment)
+			}
+		}
+	}
+	return groups
 }
 
 func collectObjectRenames(file *ast.File, info *types.Info, rng *rand.Rand) (map[types.Object]string, map[string]string) {
