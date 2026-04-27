@@ -48,11 +48,12 @@ func obfuscateFile(input, output string, rng *rand.Rand) error {
 		return fmt.Errorf("parse: %w", err)
 	}
 	stripNonDirectiveComments(file)
+	fileLevelDirectives := collectFileLevelDirectives(file)
 	// Comments retained in file.Comments are placed by absolute positions.
 	// Later rewrites inject NoPos nodes, which can misplace directive comments
 	// between declarations (e.g. inside the previous function body). Keep
-	// directives on Doc/Comment fields, but disable positional placement.
-	file.Comments = nil
+	// directives on Doc/Comment fields and preserve file-level build tags.
+	file.Comments = fileLevelDirectives
 
 	info := &types.Info{
 		Defs:  make(map[*ast.Ident]types.Object),
@@ -207,6 +208,23 @@ func cgoPreambleComments(file *ast.File) []*ast.CommentGroup {
 		}
 	}
 	return groups
+}
+
+func collectFileLevelDirectives(file *ast.File) []*ast.CommentGroup {
+	if len(file.Comments) == 0 {
+		return nil
+	}
+
+	filtered := make([]*ast.CommentGroup, 0, len(file.Comments))
+	for _, group := range file.Comments {
+		if !hasDirectiveComment(group) {
+			continue
+		}
+		if group.End() < file.Package {
+			filtered = append(filtered, group)
+		}
+	}
+	return filtered
 }
 
 func collectObjectRenames(file *ast.File, info *types.Info, rng *rand.Rand) (map[types.Object]string, map[string]string) {
