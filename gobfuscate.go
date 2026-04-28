@@ -272,20 +272,14 @@ func collectObjectRenames(file *ast.File, info *types.Info, rng *rand.Rand) (map
 		if !ok {
 			continue
 		}
-		// Only rename free functions. Methods participate in interface method
-		// sets, and renaming just concrete methods can break interface contracts
-		// because interface method objects are distinct from concrete receiver
-		// method objects in go/types.
-		if fn.Recv == nil {
-			name := fn.Name.Name
-			if name != "main" && name != "init" && !ast.IsExported(name) {
-				newName := "_f" + randomHex(rng, 6)
-				// Keep a fallback by-name map for plain identifier calls when type
-				// info isn't available, and prefer object-based renaming when it is.
-				renameByFuncName[name] = newName
-				if obj, ok := info.Defs[fn.Name].(*types.Func); ok {
-					renameByObj[obj] = newName
-				}
+		name := fn.Name.Name
+		if name != "main" && name != "init" {
+			newName := "_f" + randomHex(rng, 6)
+			// Keep a fallback by-name map for plain identifier calls when type
+			// info isn't available, and prefer object-based renaming when it is.
+			renameByFuncName[name] = newName
+			if obj, ok := info.Defs[fn.Name].(*types.Func); ok {
+				renameByObj[obj] = newName
 			}
 		}
 
@@ -301,16 +295,32 @@ func collectObjectRenames(file *ast.File, info *types.Info, rng *rand.Rand) (map
 			if id.Name == "_" {
 				return true
 			}
-			v, ok := obj.(*types.Var)
-			if !ok {
+			if _, ok := obj.(*types.Var); !ok {
 				return true
 			}
-			if v.Pkg() == nil {
-				renameByObj[obj] = "_v" + randomHex(rng, 6)
-			}
+			renameByObj[obj] = "_v" + randomHex(rng, 6)
 			return true
 		})
 	}
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		id, ok := n.(*ast.Ident)
+		if !ok || id.Name == "_" {
+			return true
+		}
+		obj := info.Defs[id]
+		if obj == nil {
+			return true
+		}
+		v, ok := obj.(*types.Var)
+		if !ok || v.IsField() {
+			return true
+		}
+		if _, exists := renameByObj[obj]; !exists {
+			renameByObj[obj] = "_v" + randomHex(rng, 6)
+		}
+		return true
+	})
 
 	return renameByObj, renameByFuncName
 }
