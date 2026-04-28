@@ -272,14 +272,14 @@ func collectObjectRenames(file *ast.File, info *types.Info, rng *rand.Rand) (map
 		if !ok {
 			continue
 		}
-		if fn.Recv == nil {
-			name := fn.Name.Name
-			if name != "main" && name != "init" && !ast.IsExported(name) {
-				newName := "_f" + randomHex(rng, 6)
-				renameByFuncName[name] = newName
-				if obj, ok := info.Defs[fn.Name].(*types.Func); ok {
-					renameByObj[obj] = newName
-				}
+		name := fn.Name.Name
+		if name != "main" && name != "init" && !ast.IsExported(name) {
+			newName := "_f" + randomHex(rng, 6)
+			// Keep a fallback by-name map for plain identifier calls when type
+			// info isn't available, and prefer object-based renaming when it is.
+			renameByFuncName[name] = newName
+			if obj, ok := info.Defs[fn.Name].(*types.Func); ok {
+				renameByObj[obj] = newName
 			}
 		}
 
