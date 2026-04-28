@@ -238,6 +238,11 @@ func extractFileLevelDirectivesText(input string, fset *token.FileSet, file *ast
 		if !hasDirectiveComment(group) {
 			continue
 		}
+		// format.Node emits file.Doc directly above the package clause.
+		// Re-prepending it here would duplicate directives such as //go:debug.
+		if group == file.Doc {
+			continue
+		}
 		if group.End() >= file.Package {
 			continue
 		}
